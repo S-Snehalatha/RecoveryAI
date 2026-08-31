@@ -18,9 +18,9 @@
       "previous_successful_payments": 5,
       "experiment_group": "AI_RECOVERY_GROUP",
       "demo_scenario": "SAFE_AUTO_RETRY",
-      "status": "POLICY_APPROVED",
+      "status": "DIAGNOSED",
       "created_at": "2026-08-27T16:00:24.000Z",
-      "updated_at": "2026-08-27T16:00:24.000Z",
+      "updated_at": "2026-08-31T08:15:59.759Z",
       "gateway_error_code": "BAD_REQUEST_PAYMENT_TIMED_OUT",
       "failure_reason_raw": "Customer network timed out during 3D Secure verification."
     },
@@ -3028,6 +3028,26 @@
     }
   ],
   "ai_decisions": [
+    {
+      "id": "ai-0000-0000-0001-2026",
+      "transaction_id": "tx-0000-0000-0001-2026",
+      "recommended_strategy": "retry_payment",
+      "confidence_score": 0.88,
+      "diagnosis_code": "TRANSIENT_3DS_TIMEOUT",
+      "concise_rationale": "Low-value transaction (≤ ₹5,000) with 5 prior successful payments. Safe automated retry recommended.",
+      "suggested_delay_minutes": 0,
+      "suggested_discount_pct": 0,
+      "model_name": "DemoAIProvider (Deterministic)",
+      "latency_ms": 1,
+      "raw_llm_response": {
+        "diagnosis": {
+          "primary_reason": "TRANSIENT_3DS_TIMEOUT",
+          "explanation": "Customer network timed out during 2FA authorization; high customer trust profile."
+        },
+        "expected_recovery_value": 2499
+      },
+      "created_at": "2026-08-31T08:15:59.757Z"
+    },
     {
       "id": "ai-0000-0000-0008-2026",
       "transaction_id": "tx-0000-0000-0008-2026",
