@@ -118,7 +118,7 @@ export class InMemoryStore {
           outcome_status: 'VERIFIED_RECOVERED',
           recovered_amount_in_inr: tx.amount_in_inr,
           gateway_payment_id: 'pay_sim_94827104',
-          verification_source: 'WEBHOOK_SIGNATURE',
+          verification_source: 'SIMULATION_EVENT',
           verification_payload: { event: 'payment.captured', payment_id: 'pay_sim_94827104' },
           verified_at: tx.created_at,
         });
