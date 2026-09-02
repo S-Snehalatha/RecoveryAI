@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { runRecoveryBatch } from '@/lib/recovery/batchRunner';
+import { runRecoveryBatch } from '../../../../lib/recovery/batchRunner';
 
 export async function POST() {
   try {
