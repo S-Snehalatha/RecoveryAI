@@ -56,7 +56,8 @@ export async function runRecoveryBatch(runName = 'Phase 6 Demo Recovery Batch'):
   const batch: BatchRun = { id: `batch-${randomUUID()}`, run_name: runName, total_transactions: 0, execution_mode: 'DEMO_SIMULATION', status: 'RUNNING', metrics_summary: {}, started_at: new Date().toISOString() };
   inMemoryStore.insertBatchRun(batch);
   recordAuditEvent({ event_type: 'BATCH_STARTED', actor_type: 'SYSTEM', actor_id: 'phase-6-batch-runner', what: 'Batch started.', why: 'Demo batch requested.', result: 'RUNNING', state_after: { execution_mode: 'DEMO_SIMULATION', simulated: true } });
-  const items = inMemoryStore.getTransactions().filter((tx) => pending(tx.status));
+  const demoScenarios = new Set(['SAFE_AUTO_RETRY', 'OVER_LIMIT_REVIEW', 'LOW_CONFIDENCE_REVIEW', 'PAYMENT_LINK_RECOVERY', 'FAILED_RECOVERY', 'HIGH_VALUE_RECEIVABLE']);
+  const items = inMemoryStore.getTransactions().filter((tx) => pending(tx.status) && tx.demo_scenario && demoScenarios.has(tx.demo_scenario));
   let processed = 0; let processingErrors = 0;
   for (const tx of items) {
     try { if (!attempted(tx.id)) { await processOne(tx); processed++; } }
