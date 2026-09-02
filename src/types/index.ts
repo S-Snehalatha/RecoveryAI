@@ -41,6 +41,13 @@ export type DemoScenario =
   | 'STANDARD_STREAM';
 
 export type TransactionStatus =
+  | 'pending'
+  | 'processing'
+  | 'review'
+  | 'executing'
+  | 'recovered'
+  | 'failed'
+  | 'blocked'
   | 'INGESTED'
   | 'DIAGNOSED'
   | 'POLICY_APPROVED'
