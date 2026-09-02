@@ -24,7 +24,7 @@ async function processOne(tx: Transaction) {
   audit('TRANSACTION_RECEIVED', tx, 'RECEIVED', 'Pending transaction selected.');
   const ai = await generateAIDecision({ ...tx, status: 'processing' });
   audit('AI_DIAGNOSIS', tx, 'DIAGNOSED', ai.concise_rationale, { strategy: ai.recommended_strategy, confidence: ai.confidence_score });
-  const valid = validateAIOutput({ diagnosis: { primary_reason: ai.diagnosis_code, explanation: ai.concise_rationale }, recommended_strategy: ai.recommended_strategy, confidence: ai.confidence_score, expected_recovery_value: tx.amount_in_inr, decision_explanation: ai.concise_rationale });
+  const valid = validateAIOutput({ diagnosis: { primary_reason: ai.diagnosis_code, explanation: ai.concise_rationale }, recommended_strategy: ai.recommended_strategy, confidence_score: ai.confidence_score, expected_recovery_value: tx.amount_in_inr, decision_explanation: ai.concise_rationale });
   if (!valid.success) throw new Error(`AI validation failed for ${tx.id}`);
   audit('AI_STRATEGY_RECOMMENDED', tx, 'RECOMMENDED', ai.concise_rationale, { strategy: ai.recommended_strategy });
   const p = evaluatePolicy(tx, valid.data);
