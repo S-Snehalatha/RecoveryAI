@@ -9,6 +9,7 @@ import {
   RecoveryResult,
   AuditLog,
   HumanReview,
+  BatchRun,
 } from '@/types';
 import { generateSyntheticDataset } from '@/lib/synthetic/generator';
 
@@ -250,6 +251,32 @@ export class InMemoryStore {
     };
     this.saveState();
     return this.state.human_reviews[idx];
+  }
+
+  // Batch Runs
+  public getBatchRuns(): BatchRun[] {
+    return [...this.state.batch_runs];
+  }
+
+  public getBatchRunById(id: string): BatchRun | undefined {
+    return this.state.batch_runs.find((batch: BatchRun) => batch.id === id);
+  }
+
+  public insertBatchRun(batch: BatchRun): BatchRun {
+    this.state.batch_runs.unshift(batch);
+    this.saveState();
+    return batch;
+  }
+
+  public updateBatchRun(id: string, updates: Partial<BatchRun>): BatchRun | undefined {
+    const idx = this.state.batch_runs.findIndex((batch: BatchRun) => batch.id === id);
+    if (idx === -1) return undefined;
+    this.state.batch_runs[idx] = {
+      ...this.state.batch_runs[idx]!,
+      ...updates,
+    };
+    this.saveState();
+    return this.state.batch_runs[idx];
   }
 
   // Reset Demo State
