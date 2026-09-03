@@ -5,7 +5,7 @@ import { evaluatePolicy } from '@/lib/policy';
 import { recordAuditEvent } from '@/lib/audit';
 import { calculateRecoveryRate, calculateVerifiedRecovery } from '@/lib/metrics';
 import { inMemoryStore } from '@/lib/db/inMemoryStore';
-import { executeDemoRecovery } from './demoExecutionAdapter';
+import { getExecutionAdapter } from '@/lib/razorpay/adapter';
 import { AIDecision, BatchRun, Transaction } from '@/types';
 
 export interface BatchRunSummary { batch: BatchRun; processed: number; recovered: number; failed: number; reviewed: number; blocked: number; recovered_amount_in_inr: number; recovery_rate: number; }
@@ -41,27 +41,34 @@ async function processOne(tx: Transaction) {
     audit('POLICY_BLOCKED', tx, 'BLOCKED', p.reason, { rule_id: p.rule_id });
     return;
   }
-  audit('POLICY_ALLOWED', tx, 'ALLOWED', p.reason, { rule_id: p.rule_id });
+  const adapter = getExecutionAdapter();
+  audit('POLICY_ALLOWED', tx, 'ALLOWED', p.reason, { rule_id: p.rule_id, execution_mode: adapter.mode });
   inMemoryStore.updateTransaction(tx.id, { status: 'executing' });
-  audit('EXECUTION_STARTED', tx, 'STARTED', 'Policy returned ALLOW.', { execution_mode: 'DEMO_SIMULATION', simulated: true });
-  const execution = executeDemoRecovery(tx, ai.recommended_strategy, policy.id);
+  audit('EXECUTION_STARTED', tx, 'STARTED', 'Policy returned ALLOW.', { execution_mode: adapter.mode, simulated: adapter.mode === 'DEMO_SIMULATION' });
+  const execution = await adapter.execute(tx, ai.recommended_strategy, policy.id);
   inMemoryStore.insertRecoveryAttempt(execution.attempt);
+  if (!execution.result) {
+    // Payment Link creation is only a recovery attempt. Revenue is confirmed later by webhook.
+    audit('EXECUTION_SUCCEEDED', tx, 'DISPATCHED', 'Payment Link created; awaiting payment confirmation.', { execution_mode: adapter.mode, recovery_confirmed: false });
+    return;
+  }
   inMemoryStore.insertRecoveryResult(execution.result);
   const success = execution.result.outcome_status === 'VERIFIED_RECOVERED';
   inMemoryStore.updateTransaction(tx.id, { status: success ? 'recovered' : 'failed' });
-  audit(success ? 'EXECUTION_SUCCEEDED' : 'EXECUTION_FAILED', tx, success ? 'SUCCEEDED' : 'FAILED', 'SIMULATED DEMO OUTCOME', { execution_mode: 'DEMO_SIMULATION', simulated: true, label: 'SIMULATED DEMO OUTCOME' });
-  audit(success ? 'RECOVERY_CONFIRMED' : 'RECOVERY_FAILED', tx, success ? 'VERIFIED_RECOVERED' : 'FAILED', 'SIMULATED DEMO OUTCOME', { execution_mode: 'DEMO_SIMULATION', simulated: true, label: 'SIMULATED DEMO OUTCOME' });
+  audit(success ? 'EXECUTION_SUCCEEDED' : 'EXECUTION_FAILED', tx, success ? 'SUCCEEDED' : 'FAILED', adapter.mode === 'DEMO_SIMULATION' ? 'SIMULATED DEMO OUTCOME' : 'Gateway execution outcome.', { execution_mode: adapter.mode, simulated: adapter.mode === 'DEMO_SIMULATION', label: adapter.mode === 'DEMO_SIMULATION' ? 'SIMULATED DEMO OUTCOME' : undefined });
+  audit(success ? 'RECOVERY_CONFIRMED' : 'RECOVERY_FAILED', tx, success ? 'VERIFIED_RECOVERED' : 'FAILED', adapter.mode === 'DEMO_SIMULATION' ? 'SIMULATED DEMO OUTCOME' : 'Gateway execution outcome.', { execution_mode: adapter.mode, simulated: adapter.mode === 'DEMO_SIMULATION', label: adapter.mode === 'DEMO_SIMULATION' ? 'SIMULATED DEMO OUTCOME' : undefined });
 }
 export async function runRecoveryBatch(runName = 'Phase 6 Demo Recovery Batch'): Promise<BatchRunSummary> {
-  const batch: BatchRun = { id: `batch-${randomUUID()}`, run_name: runName, total_transactions: 0, execution_mode: 'DEMO_SIMULATION', status: 'RUNNING', metrics_summary: {}, started_at: new Date().toISOString() };
+  const adapter = getExecutionAdapter();
+  const batch: BatchRun = { id: `batch-${randomUUID()}`, run_name: runName, total_transactions: 0, execution_mode: adapter.mode, status: 'RUNNING', metrics_summary: {}, started_at: new Date().toISOString() };
   inMemoryStore.insertBatchRun(batch);
-  recordAuditEvent({ event_type: 'BATCH_STARTED', actor_type: 'SYSTEM', actor_id: 'phase-6-batch-runner', what: 'Batch started.', why: 'Demo batch requested.', result: 'RUNNING', state_after: { execution_mode: 'DEMO_SIMULATION', simulated: true } });
+  recordAuditEvent({ event_type: 'BATCH_STARTED', actor_type: 'SYSTEM', actor_id: 'phase-6-batch-runner', what: 'Batch started.', why: 'Recovery batch requested.', result: 'RUNNING', state_after: { execution_mode: adapter.mode, simulated: adapter.mode === 'DEMO_SIMULATION' } });
   const demoScenarios = new Set(['SAFE_AUTO_RETRY', 'OVER_LIMIT_REVIEW', 'LOW_CONFIDENCE_REVIEW', 'PAYMENT_LINK_RECOVERY', 'FAILED_RECOVERY', 'HIGH_VALUE_RECEIVABLE']);
   const items = inMemoryStore.getTransactions().filter((tx) => pending(tx.status) && tx.demo_scenario && demoScenarios.has(tx.demo_scenario));
   let processed = 0; let processingErrors = 0;
   for (const tx of items) {
     try { if (!attempted(tx.id)) { await processOne(tx); processed++; } }
-    catch (error) { processingErrors++; inMemoryStore.updateTransaction(tx.id, { status: 'failed' }); audit('EXECUTION_FAILED', tx, 'FAILED', error instanceof Error ? error.message : 'Unknown error.'); }
+    catch (error) { processingErrors++; inMemoryStore.updateTransaction(tx.id, { status: 'failed' }); audit('EXECUTION_FAILED', tx, 'FAILED', error instanceof Error ? error.message : 'Unknown error.', { execution_mode: adapter.mode }); }
   }
   const txs = inMemoryStore.getTransactions();
   const reviewedCount = txs.filter((tx) => tx.status === 'review').length;
@@ -71,7 +78,7 @@ export async function runRecoveryBatch(runName = 'Phase 6 Demo Recovery Batch'):
   const recoveredAmount = calculateVerifiedRecovery(inMemoryStore.getRecoveryResults());
   const base = items.reduce((sum, tx) => sum + tx.amount_in_inr, 0);
   const rate = calculateRecoveryRate(recoveredAmount, base);
-  const final = inMemoryStore.updateBatchRun(batch.id, { total_transactions: items.length, status: 'COMPLETED', completed_at: new Date().toISOString(), metrics_summary: { processed, recovered: recoveredCount, failed: failedCount, processing_errors: processingErrors, reviewed: reviewedCount, blocked: blockedCount, recovered_amount_in_inr: recoveredAmount, recovery_rate: rate, execution_mode: 'DEMO_SIMULATION', simulated: true, label: 'SIMULATED DEMO OUTCOME' } })!;
+  const final = inMemoryStore.updateBatchRun(batch.id, { total_transactions: items.length, status: 'COMPLETED', completed_at: new Date().toISOString(), metrics_summary: { processed, recovered: recoveredCount, failed: failedCount, processing_errors: processingErrors, reviewed: reviewedCount, blocked: blockedCount, recovered_amount_in_inr: recoveredAmount, recovery_rate: rate, execution_mode: adapter.mode, simulated: adapter.mode === 'DEMO_SIMULATION', label: adapter.mode === 'DEMO_SIMULATION' ? 'SIMULATED DEMO OUTCOME' : undefined } })!;
   recordAuditEvent({ event_type: 'BATCH_COMPLETED', actor_type: 'SYSTEM', actor_id: 'phase-6-batch-runner', what: 'Batch completed.', why: 'All pending transactions were processed independently.', result: 'COMPLETED', state_after: final.metrics_summary });
   return { batch: final, processed, recovered: recoveredCount, failed: failedCount, reviewed: reviewedCount, blocked: blockedCount, recovered_amount_in_inr: recoveredAmount, recovery_rate: rate };
 }
