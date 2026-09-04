@@ -1,10 +1,10 @@
-import { evaluatePolicy } from "@/lib/policy";
-import { Transaction, PolicyDecision } from "@/types";
+import { evaluatePolicy, PolicyEvaluation } from "@/lib/policy";
+import { Transaction } from "@/types";
 
 export interface AgentToolResult {
   toolName: string;
   allowed: boolean;
-  policyDecision: PolicyDecision;
+  policyDecision: PolicyEvaluation;
   data?: Record<string, unknown>;
 }
 
@@ -13,13 +13,13 @@ export const executeAgentTool = async (
   args: { transaction: Transaction; amount?: number; expiryDays?: number }
 ): Promise<AgentToolResult> => {
   const { transaction } = args;
+  const txAmount = (transaction as Record<string, unknown>).amount as number || 0;
 
   // 1. Intercept with Policy Engine
   const policyDecision = evaluatePolicy(transaction, {
-    diagnosis: { primary_reason: "Agent automated strategy", explanation: "Triggered by agent tool call" },
     recommended_strategy: toolName === "issue_payment_link" ? "send_payment_link" : "retry_payment",
     confidence: 0.85,
-    expected_recovery_value: transaction.amount,
+    expected_recovery_value: txAmount,
     decision_explanation: "Agent executed action request"
   });
 
