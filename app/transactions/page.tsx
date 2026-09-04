@@ -1,5 +1,5 @@
 import { inMemoryStore } from '@/lib/db/inMemoryStore';
-import { ProfessionalTransactionTable } from '@/components/transactions/ProfessionalTransactionTable';
+import { ProfessionalTransactionTable } from '../../components/transactions/ProfessionalTransactionTable';
 import Link from 'next/link';
 
 interface PageProps { searchParams?: { lossType?: string } }
