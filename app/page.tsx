@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { inMemoryStore } from '@/lib/db/inMemoryStore';
-import { DashboardClient } from '@/components/dashboard/DashboardClient';
+import { DashboardClient } from '../components/dashboard/DashboardClient';
 import { AlertTriangle, ArrowUpRight, Ban, CheckCircle2, Clock3, Gauge, ShieldCheck, Users } from 'lucide-react';
 
 const money = (value: number) => `₹${Math.round(value).toLocaleString('en-IN')}`;
