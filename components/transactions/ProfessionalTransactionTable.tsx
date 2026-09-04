@@ -1,6 +1,6 @@
 'use client';
 import {useMemo,useState} from 'react';
-import type {Transaction,AIDecision,PolicyDecisionRecord,RecoveryAttempt,RecoveryResult,AuditLog} from '@/types';
+import type {Transaction,AuditLog} from '@/types';
 import {Search,X,Loader2,ChevronRight,Brain,ShieldCheck,ReceiptText,Clock3} from 'lucide-react';
 const L:Record<string,string>={failed_payment:'Failed Payment',abandoned_checkout:'Abandoned Checkout',subscription_failure:'Subscription',overdue_receivable:'Receivable'};
 const S:Record<string,string>={retry_payment:'Retry Payment',send_payment_link:'Payment Link',retry_mandate:'Retry Mandate',escalate_receivables:'Escalate Receivable',human_review:'Human Review',no_action:'No Action'};
