@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 
 interface VoiceAgentProps {
   customerName: string;
@@ -10,14 +10,13 @@ interface VoiceAgentProps {
 
 export const VoiceRecoveryAgent: React.FC<VoiceAgentProps> = ({ customerName, amount, invoiceId }) => {
   const [isCalling, setIsCalling] = useState(false);
-  const [transcript, setTranscript] = useState("");
   const [agentResponse, setAgentResponse] = useState("");
 
   const speak = (text: string) => {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "en-IN"; // Supports Indian English / Hinglish accent
+    utterance.lang = "en-IN";
     utterance.rate = 0.95;
     window.speechSynthesis.speak(utterance);
     setAgentResponse(text);
