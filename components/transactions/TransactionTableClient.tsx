@@ -15,11 +15,11 @@ export function TransactionTableClient({ initialTransactions, initialLossType, i
   const [filter, setFilter] = useState<Filter>((initialLossType as Filter) || 'all');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<Transaction | null>(null);
-  const [decisions, setDecisions] = useState<Record<string, AIDecision>>({});
-  const [policies, setPolicies] = useState<Record<string, PolicyDecisionRecord>>({});
-  const [attempts, setAttempts] = useState<Record<string, RecoveryAttempt>>({});
-  const [results, setResults] = useState<Record<string, RecoveryResult>>({});
-  const [audits, setAudits] = useState<Record<string, AuditLog[]>>({});
+  const [decisions] = useState<Record<string, AIDecision>>({});
+  const [policies] = useState<Record<string, PolicyDecisionRecord>>({});
+  const [attempts] = useState<Record<string, RecoveryAttempt>>({});
+  const [results] = useState<Record<string, RecoveryResult>>({});
+  const [audits] = useState<Record<string, AuditLog[]>>({});
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,7 +42,6 @@ export function TransactionTableClient({ initialTransactions, initialLossType, i
       const response = await fetch('/api/ai/diagnose', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ transactionId: tx.id }) });
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || 'Diagnosis failed.');
-      setDecisions((v) => ({ ...v, [tx.id]: data.decision }));
       if (data.transaction) setTransactions((items) => items.map((item) => item.id === tx.id ? data.transaction : item));
       setSelected(tx);
     } catch (err) { setError(err instanceof Error ? err.message : 'Diagnosis failed.'); }
