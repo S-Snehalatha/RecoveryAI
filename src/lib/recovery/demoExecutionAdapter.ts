@@ -3,7 +3,10 @@ import { AIStrategy, RecoveryAttempt, RecoveryResult, Transaction } from '@/type
 
 export interface DemoExecutionResult {
   attempt: RecoveryAttempt;
-  result: RecoveryResult;
+  // Optional: a Payment Link dispatch is only an ATTEMPT until a later webhook
+  // (or, in demo mode, a subsequent confirmation event) verifies the money
+  // actually arrived. It must never be reported here as already recovered.
+  result?: RecoveryResult;
 }
 
 /** Phase 6 execution boundary. No Razorpay or external gateway calls are made. */
@@ -15,6 +18,13 @@ export function executeDemoRecovery(
   const now = new Date().toISOString();
   const attemptId = `att-${randomUUID()}`;
   const shouldFail = transaction.demo_scenario === 'FAILED_RECOVERY';
+
+  // A Payment Link is dispatched to the customer, not paid on the spot — the
+  // customer still has to click it and pay. Only an attempt exists at this
+  // point; recovery can only be confirmed later by a webhook/verification
+  // event, so no RecoveryResult is created here.
+  const isDeferredConfirmation = strategy === 'send_payment_link';
+
   const attempt: RecoveryAttempt = {
     id: attemptId,
     transaction_id: transaction.id,
@@ -22,7 +32,7 @@ export function executeDemoRecovery(
     execution_mode: 'DEMO_SIMULATION',
     strategy,
     gateway_action_id: `sim-${transaction.id}-${strategy}`,
-    gateway_status: shouldFail ? 'simulated_failed' : 'simulated_executed',
+    gateway_status: shouldFail ? 'simulated_failed' : isDeferredConfirmation ? 'simulated_link_created' : 'simulated_executed',
     payment_url: strategy === 'send_payment_link' ? `demo://recovery/${transaction.id}` : undefined,
     request_payload: {
       execution_mode: 'DEMO_SIMULATION',
@@ -35,11 +45,18 @@ export function executeDemoRecovery(
       execution_mode: 'DEMO_SIMULATION',
       simulated: true,
       label: 'SIMULATED DEMO OUTCOME',
-      status: shouldFail ? 'FAILED' : 'SUCCEEDED',
+      status: shouldFail ? 'FAILED' : isDeferredConfirmation ? 'DISPATCHED' : 'SUCCEEDED',
     },
-    status: shouldFail ? 'FAILED' : 'SUCCEEDED',
+    status: shouldFail ? 'FAILED' : isDeferredConfirmation ? 'DISPATCHED' : 'SUCCEEDED',
     executed_at: now,
   };
+
+  if (isDeferredConfirmation && !shouldFail) {
+    // Payment Link creation is an ATTEMPT, not recovered revenue.
+    // No RecoveryResult yet — the transaction stays in 'executing' awaiting
+    // a later simulated confirmation event (Phase 7's webhook boundary).
+    return { attempt };
+  }
 
   const result: RecoveryResult = {
     id: `res-${randomUUID()}`,
