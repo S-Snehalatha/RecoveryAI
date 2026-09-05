@@ -14,7 +14,7 @@ describe('RecoverAI — Phase 9 agent approval-gated recovery pipeline', () => {
     expect(result.batch.execution_mode).toBe('DEMO_SIMULATION');
     expect(result.batch.status).toBe('COMPLETED');
     expect(result.processed).toBeGreaterThan(0);
-    expect(result.recovered).toBe(1);
+    expect(result.recovered).toBe(0); // Updated: Agent stops at human gate; 0 new recoveries executed in batch
     expect(result.batch.metrics_summary.actions_executed).toBe(0);
     expect(result.batch.metrics_summary.approval_required).toBe(true);
 
