@@ -1,4 +1,3 @@
-import { randomUUID } from 'crypto';
 import { NextResponse } from 'next/server';
 import { evaluatePolicy } from '@/lib/policy';
 import { recordAuditEvent } from '@/lib/audit';
@@ -18,10 +17,7 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as ApprovalRequest;
     if (!body.transactionId || !body.reviewId || typeof body.approved !== 'boolean') {
-      return NextResponse.json(
-        { error: 'transactionId, reviewId and approved are required' },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: 'transactionId, reviewId and approved are required' }, { status: 400 });
     }
 
     const transaction = inMemoryStore.getTransactionById(body.transactionId);
@@ -67,8 +63,6 @@ export async function POST(request: Request) {
       confidence_score: decision.confidence_score,
     });
 
-    // Approval is not a policy override. A human can authorize execution only
-    // when the current deterministic policy still returns ALLOW.
     if (policyEvaluation.decision !== 'ALLOW') {
       return NextResponse.json(
         { error: 'Current policy does not allow this action. Human approval cannot override policy.', policy: policyEvaluation },
@@ -78,6 +72,11 @@ export async function POST(request: Request) {
 
     if (!policy || policy.decision !== 'ALLOW' || policy.approved_strategy !== decision.recommended_strategy) {
       return NextResponse.json({ error: 'Stored policy decision is stale or inconsistent with the current policy' }, { status: 409 });
+    }
+
+    const ruleId = policy.matched_rules[0];
+    if (!ruleId) {
+      return NextResponse.json({ error: 'Stored policy decision is missing its matched rule' }, { status: 409 });
     }
 
     const existingAttempt = inMemoryStore.getRecoveryAttempts(transaction.id)[0];
@@ -94,31 +93,21 @@ export async function POST(request: Request) {
     });
 
     recordAuditEvent({
-      event_type: 'HUMAN_APPROVED',
-      actor_type: 'HUMAN_OPERATOR',
-      actor_id: reviewerId,
-      transaction_id: transaction.id,
-      rule_id: policy.rule_id,
+      event_type: 'HUMAN_APPROVED', actor_type: 'HUMAN_OPERATOR', actor_id: reviewerId,
+      transaction_id: transaction.id, rule_id: ruleId,
       what: 'Human operator approved the agent recommendation after a fresh policy check.',
       why: body.reviewerNotes ?? 'Operator authorized the proposed recovery action.',
-      result: 'APPROVED',
-      action_taken: decision.recommended_strategy,
-      amount_in_inr: transaction.amount_in_inr,
+      result: 'APPROVED', action_taken: decision.recommended_strategy, amount_in_inr: transaction.amount_in_inr,
     });
 
     const adapter = getExecutionAdapter();
     inMemoryStore.updateTransaction(transaction.id, { status: 'executing' });
     recordAuditEvent({
-      event_type: 'EXECUTION_STARTED',
-      actor_type: 'SYSTEM',
-      actor_id: 'recovery-agent',
-      transaction_id: transaction.id,
-      rule_id: policy.rule_id,
+      event_type: 'EXECUTION_STARTED', actor_type: 'SYSTEM', actor_id: 'recovery-agent',
+      transaction_id: transaction.id, rule_id: ruleId,
       what: 'Approved recovery action execution started.',
       why: 'Explicit human authorization and current policy ALLOW are both present.',
-      result: 'STARTED',
-      action_taken: decision.recommended_strategy,
-      amount_in_inr: transaction.amount_in_inr,
+      result: 'STARTED', action_taken: decision.recommended_strategy, amount_in_inr: transaction.amount_in_inr,
       state_after: { execution_mode: adapter.mode, simulated: adapter.mode === 'DEMO_SIMULATION' },
     });
 
@@ -129,50 +118,32 @@ export async function POST(request: Request) {
       if (execution.result) {
         inMemoryStore.insertRecoveryResult(execution.result);
         const recovered = execution.result.outcome_status === 'VERIFIED_RECOVERED';
-        inMemoryStore.updateTransaction(transaction.id, { status: recovered ? 'recovered' : 'failed' });
+        inMemoryStore.updateTransaction(transaction.id, { status: recovered ? 'RECOVERED' : 'RECOVERY_FAILED' });
       }
 
       recordAuditEvent({
-        event_type: 'EXECUTION_SUCCEEDED',
-        actor_type: 'GATEWAY_ADAPTER',
-        actor_id: adapter.mode,
-        transaction_id: transaction.id,
-        rule_id: policy.rule_id,
+        event_type: 'EXECUTION_SUCCEEDED', actor_type: 'GATEWAY_ADAPTER', actor_id: adapter.mode,
+        transaction_id: transaction.id, rule_id: ruleId,
         what: 'Approved recovery action was dispatched.',
         why: 'Human authorization and deterministic policy validation passed.',
         result: execution.result?.outcome_status === 'VERIFIED_RECOVERED' ? 'VERIFIED_RECOVERED' : 'DISPATCHED',
-        action_taken: decision.recommended_strategy,
-        amount_in_inr: transaction.amount_in_inr,
+        action_taken: decision.recommended_strategy, amount_in_inr: transaction.amount_in_inr,
         state_after: { execution_mode: adapter.mode, recovery_confirmed: Boolean(execution.result) },
       });
 
-      return NextResponse.json({
-        success: true,
-        status: execution.result?.outcome_status === 'VERIFIED_RECOVERED' ? 'RECOVERED' : 'EXECUTED',
-        review: updatedReview,
-        attempt: execution.attempt,
-        result: execution.result ?? null,
-      }, { status: 200 });
+      return NextResponse.json({ success: true, status: execution.result?.outcome_status === 'VERIFIED_RECOVERED' ? 'RECOVERED' : 'EXECUTED', review: updatedReview, attempt: execution.attempt, result: execution.result ?? null }, { status: 200 });
     } catch (error) {
-      inMemoryStore.updateTransaction(transaction.id, { status: 'failed' });
+      inMemoryStore.updateTransaction(transaction.id, { status: 'RECOVERY_FAILED' });
       recordAuditEvent({
-        event_type: 'EXECUTION_FAILED',
-        actor_type: 'GATEWAY_ADAPTER',
-        actor_id: adapter.mode,
-        transaction_id: transaction.id,
-        rule_id: policy.rule_id,
+        event_type: 'EXECUTION_FAILED', actor_type: 'GATEWAY_ADAPTER', actor_id: adapter.mode,
+        transaction_id: transaction.id, rule_id: ruleId,
         what: 'Approved recovery action could not be dispatched.',
         why: error instanceof Error ? error.message : 'Unknown gateway execution error.',
-        result: 'FAILED',
-        action_taken: decision.recommended_strategy,
-        amount_in_inr: transaction.amount_in_inr,
+        result: 'FAILED', action_taken: decision.recommended_strategy, amount_in_inr: transaction.amount_in_inr,
       });
       return NextResponse.json({ error: error instanceof Error ? error.message : 'Recovery execution failed.' }, { status: 502 });
     }
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Approval request failed.' },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Approval request failed.' }, { status: 500 });
   }
 }
