@@ -1,0 +1,672 @@
+# RecoverAI —
+I have built **RecoverAI** for the **Razorpay AI Buildathon 2026 — AI Revenue Recovery track**.
+
+GitHub repository:
+https://github.com/S-Snehalatha/RecoveryAI
+
+Deployed application:
+https://recoveryai.netlify.app
+
+## 1. What RecoverAI is
+
+RecoverAI is an **AI-powered revenue recovery agent** for transactions where revenue is at risk.
+
+The system should:
+
+1. Detect an at-risk transaction.
+2. Investigate the transaction and customer context.
+3. Use AI to diagnose why revenue is at risk.
+4. Recommend the best recovery strategy.
+5. Run the recommendation through a deterministic policy engine.
+6. STOP and request human authorization.
+7. After human approval, execute the allowed recovery action.
+8. Verify whether money was actually recovered.
+9. Record the verified recovered amount.
+10. Maintain a complete audit trail.
+
+The core principle is:
+
+**AI recommends.
+Policy governs.
+Human authorizes.
+Execution happens only after approval.
+Evidence confirms recovery.**
+
+---
+
+# 2. IMPORTANT — Do NOT redesign this as a Stripe project
+
+The payment gateway for this project is:
+
+**Razorpay Test Mode**
+
+Do NOT replace Razorpay with Stripe or PayPal.
+
+Use only documented Razorpay APIs and official Razorpay behavior.
+
+Do not invent Razorpay endpoints.
+
+Do not assume that creating a Payment Link means money was recovered.
+
+A transaction is considered recovered ONLY when there is verified evidence of successful payment.
+
+---
+
+# 3. What triggers an at-risk transaction?
+
+RecoverAI already works with an internal transaction/risk model.
+
+The system should support these types of revenue risk:
+
+* Failed payments
+* Abandoned checkouts
+* Failed subscription mandates
+* Overdue B2B invoices
+
+For the current demo, the transaction data can come from RecoverAI's existing transaction/demo data.
+
+Do NOT require Stripe webhooks as the starting point.
+
+The existing RecoverAI dashboard should be able to initiate the agent analysis.
+
+The intended flow is:
+
+Dashboard
+→ Run Recovery Agent
+→ Agent analyzes transaction
+→ AI diagnosis
+→ Recovery recommendation
+→ Deterministic policy check
+→ Human approval queue
+→ Human approves/rejects
+→ Execute approved recovery
+→ Verify result
+→ Calculate actual recovered amount
+→ Audit trail
+
+---
+
+# 4. Existing AI Agent responsibilities
+
+The agent should investigate:
+
+* transaction amount
+* payment method
+* failure reason
+* customer history
+* time elapsed
+* transaction type
+* previous recovery attempts
+* relevant risk/context information
+
+The AI should produce:
+
+### Diagnosis
+
+Why is this transaction at risk?
+
+### Recommended strategy
+
+One of:
+
+* retry_payment
+* send_payment_link
+* retry_mandate
+* escalate_receivables
+* human_review
+
+### Confidence
+
+A confidence score.
+
+### Reasoning
+
+A concise explanation for why the strategy was selected.
+
+The AI must NOT directly execute financial recovery.
+
+---
+
+# 5. Deterministic Policy Engine
+
+The AI recommendation must always go through the policy engine.
+
+The policy engine is the safety layer.
+
+Possible policy decisions include:
+
+* ALLOW
+* BLOCK
+* HUMAN_REVIEW
+
+The AI must never override the deterministic policy engine.
+
+For example:
+
+AI says:
+
+retry_payment
+
+But policy says:
+
+BLOCK
+
+Then the system must NOT execute the retry.
+
+The policy decision must win.
+
+---
+
+# 6. Human approval is REQUIRED
+
+This is the most important issue I need fixed.
+
+The current system is supposed to have a human-in-the-loop approval gate.
+
+The correct flow is:
+
+AI diagnosis
+↓
+Policy check
+↓
+Pending Human Review
+↓
+WAIT
+↓
+Human clicks "Approve & Execute"
+↓
+Policy is checked again
+↓
+Execution begins
+↓
+Verification
+↓
+Recovered amount
+
+The agent must NEVER execute a financial recovery action immediately after diagnosis.
+
+If the recommendation is allowed by policy, the system should create a pending human review.
+
+The transaction should show something like:
+
+**WAITING FOR HUMAN APPROVAL**
+
+The review page should provide:
+
+**Approve & Execute**
+
+and
+
+**Reject**
+
+buttons.
+
+---
+
+# 7. Existing RecoverAI API flow
+
+The project already has an agent analysis API.
+
+Conceptually:
+
+POST
+
+/api/agent/analyze
+
+This should:
+
+1. Receive transaction ID.
+2. Load the transaction.
+3. Run RecoverAI agent.
+4. Generate AI diagnosis.
+5. Generate recommendation.
+6. Evaluate deterministic policy.
+7. Create/update HumanReview.
+8. Record audit information.
+9. Return the decision.
+
+It must NOT execute recovery.
+
+---
+
+# 8. Human approval API
+
+The project also has:
+
+POST
+
+/api/agent/approve
+
+It receives:
+
+* transactionId
+* reviewId
+* approved
+* reviewerId
+
+If rejected:
+
+* mark review REJECTED
+* close unresolved recovery
+* create audit event
+* do NOT execute anything
+
+If approved:
+
+1. Verify transaction.
+2. Verify review.
+3. Find AI decision.
+4. Re-run deterministic policy.
+5. Confirm policy still says ALLOW.
+6. Confirm stored policy decision has not changed.
+7. Prevent duplicate recovery attempts.
+8. Mark review APPROVED.
+9. Record HUMAN_APPROVED audit event.
+10. Mark transaction EXECUTING.
+11. Record EXECUTION_STARTED.
+12. Execute through the Razorpay/Test Mode adapter.
+13. Store recovery attempt/result.
+14. Verify the outcome.
+15. Mark recovered ONLY if the outcome is VERIFIED_RECOVERED.
+16. Store actual recovered amount.
+17. Record execution audit event.
+
+If policy is no longer ALLOW, execution must be blocked.
+
+---
+
+# 9. Razorpay integration
+
+The recovery gateway is:
+
+**Razorpay Test Mode**
+
+Important distinction:
+
+Creating a Razorpay Payment Link is NOT recovered revenue.
+
+For example:
+
+If RecoverAI creates a Payment Link for ₹1,000:
+
+Recovered amount = ₹0
+
+until a successful payment is actually confirmed.
+
+If the Payment Link subsequently receives a successful payment and the payment is verified:
+
+Recovered amount = ₹1,000
+
+The system must measure:
+
+**actual verified recovered money**
+
+not:
+
+* attempted recovery
+* payment link created
+* retry initiated
+* notification sent
+* recommendation generated
+
+---
+
+# 10. Webhook verification
+
+Razorpay webhook events should be used to confirm actual payment outcomes where appropriate.
+
+Webhook processing must:
+
+* verify the webhook signature
+* process events idempotently
+* avoid double-counting recovered revenue
+* update the transaction/recovery attempt
+* record audit information
+
+A webhook event should be treated as evidence of payment outcome only after proper verification.
+
+---
+
+# 11. Agent vs Zapier
+
+I am considering integrating Zapier later.
+
+But Zapier must NOT replace the RecoverAI decision engine.
+
+Correct architecture:
+
+External Event
+↓
+Zapier
+↓
+RecoverAI API
+↓
+RecoverAI Agent
+↓
+AI Diagnosis
+↓
+Policy Engine
+↓
+Human Approval
+↓
+RecoverAI Execution
+↓
+Razorpay Test Mode
+↓
+Verification
+↓
+Recovered Revenue
+↓
+Audit
+↓
+Zapier notification/CRM/etc.
+
+Zapier is only an orchestration/integration layer.
+
+RecoverAI remains responsible for:
+
+* AI reasoning
+* policy
+* human authorization
+* execution
+* verification
+* recovered revenue measurement
+* audit trail
+
+Zapier must NEVER bypass the human approval gate.
+
+---
+
+# 12. Current problem I need you to solve
+
+The deployed RecoverAI application is currently not behaving as intended.
+
+I am seeing a situation where the agent appears to diagnose transactions, but the experience is not showing the complete:
+
+AI diagnosis
+→ Policy
+→ Human authorization
+→ Approval
+→ Execution
+→ Verification
+→ Recovered revenue
+
+workflow.
+
+I need you to inspect the ENTIRE repository before changing anything.
+
+Do not guess.
+
+---
+
+# 13. Inspect these areas first
+
+Please inspect:
+
+### Agent
+
+* src/lib/agent/runner.ts
+* all agent-related files
+
+### APIs
+
+* app/api/agent/analyze/route.ts
+* app/api/agent/approve/route.ts
+
+### Human review
+
+* app/reviews/page.tsx
+* app/reviews/ReviewQueueClient.tsx
+* all HumanReview models/types/services
+
+### Dashboard
+
+* components/dashboard/DashboardClient.tsx
+* transaction UI
+* ProfessionalTransactionTable
+* all components that trigger agent analysis
+
+### Recovery
+
+* src/lib/recovery/
+* batchRunner
+* execution adapters
+* Razorpay integration
+
+### Policy
+
+* deterministic policy engine
+* policy tests
+
+### Persistence
+
+Inspect the implementation of:
+
+inMemoryStore
+
+Determine whether HumanReview, AI decisions, recovery attempts, audit records, and transaction state are stored only in memory.
+
+This is extremely important because the application is deployed on Netlify/serverless infrastructure.
+
+An in-memory store can cause state to disappear or differ between requests/instances.
+
+For example:
+
+Request 1:
+
+POST /api/agent/analyze
+
+creates:
+
+HumanReview = PENDING
+
+But Request 2:
+
+GET /reviews
+
+may run on another serverless instance and not see the same in-memory state.
+
+If this is the problem, explain it clearly and propose/fix it with persistent storage.
+
+---
+
+# 14. Inspect the Next.js structure
+
+There may be both:
+
+/app
+
+and
+
+/src/app
+
+directories.
+
+Check whether this creates a Next.js routing/build conflict.
+
+Determine which directory Next.js actually uses in this project.
+
+Make the routing architecture consistent.
+
+Do not blindly move files without checking all imports and routes.
+
+---
+
+# 15. Inspect production build
+
+GitHub Actions currently validates tests/type-check/lint, but I also need to know whether the actual Next.js production build succeeds.
+
+Run/check:
+
+npm test
+npm run type-check
+npm run lint
+npm run build
+
+The final project must have all relevant GitHub Actions checks GREEN.
+
+Do not tell me everything is fixed unless the checks actually pass.
+
+---
+
+# 16. Important safety requirements
+
+NEVER implement:
+
+Dashboard
+→ AI
+→ automatic payment
+
+That violates the intended human-in-the-loop design.
+
+The correct behavior is:
+
+Dashboard
+→ AI analysis
+→ policy
+→ pending approval
+→ human approval
+→ execution
+→ verification
+
+Also:
+
+AI recommendation != authorization
+
+Policy ALLOW != human authorization
+
+Payment Link created != revenue recovered
+
+Recovery attempted != revenue recovered
+
+Only verified successful payment counts as recovered revenue.
+
+---
+
+# 17. What the final UI should demonstrate
+
+The dashboard should clearly show:
+
+### Transaction
+
+Amount
+
+Payment method
+
+Failure reason
+
+Customer history
+
+Time elapsed
+
+### AI Diagnosis
+
+Why the transaction is at risk.
+
+### Recommendation
+
+Example:
+
+retry_payment
+
+### Confidence
+
+Example:
+
+92%
+
+### Policy
+
+Example:
+
+ALLOW
+
+### Human Gate
+
+**WAITING FOR HUMAN APPROVAL**
+
+Then the user should be able to open the approval queue.
+
+The approval queue should show:
+
+* transaction
+* amount
+* diagnosis
+* recommendation
+* confidence
+* policy decision
+* reasoning
+* human approval status
+
+Buttons:
+
+**Approve & Execute**
+
+**Reject**
+
+After approval:
+
+**EXECUTING**
+
+Then:
+
+**VERIFICATION**
+
+Then either:
+
+**RECOVERED**
+
+with:
+
+**Recovered ₹X**
+
+or:
+
+**RECOVERY FAILED**
+
+with the reason.
+
+---
+
+# 18. Audit trail
+
+Every important state transition should be auditable.
+
+Examples:
+
+* AI_DECISION_CREATED
+* POLICY_EVALUATED
+* HUMAN_REVIEW_CREATED
+* HUMAN_APPROVED
+* HUMAN_REJECTED
+* EXECUTION_STARTED
+* EXECUTION_RESULT
+* PAYMENT_VERIFIED
+* RECOVERY_VERIFIED
+* RECOVERY_FAILEd
+
+
+1. Open RecoverAI dashboard.
+2. Select an at-risk transaction.
+3. Click "Run Recovery Agent".
+4. Agent analyzes it.
+5. Diagnosis appears.
+6. Recommended recovery strategy appears.
+7. Policy decision appears.
+8. Transaction becomes WAITING FOR HUMAN APPROVAL.
+9. Human opens approval queue.
+10. Human clicks Approve & Execute.
+11. Policy is checked again.
+12. Razorpay Test Mode recovery executes.
+13. System waits for/handles verification.
+14. Verified recovered amount is calculated.
+15. Dashboard updates.
+16. Audit trail shows the complete lifecycle.
+
+
+---
+
+
+**AI Agent → Policy → Human Approval → Razorpay Execution → Verification → Measured Revenue Recovery → Audit**
+
+system.
