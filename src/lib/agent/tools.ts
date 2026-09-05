@@ -13,7 +13,7 @@ export const executeAgentTool = async (
   args: { transaction: Transaction; amount?: number; expiryDays?: number }
 ): Promise<AgentToolResult> => {
   const { transaction } = args;
-  const txAmount = args.amount ?? transaction.amount_in_inr;
+  const txAmount = (transaction as unknown as Record<string, unknown>).amount as number || 0;
 
   const policyDecision = evaluatePolicy(transaction, {
     recommended_strategy: toolName === 'issue_payment_link' ? 'send_payment_link' : 'retry_payment',
