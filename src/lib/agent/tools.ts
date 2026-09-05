@@ -13,14 +13,12 @@ export const executeAgentTool = async (
   args: { transaction: Transaction; amount?: number; expiryDays?: number }
 ): Promise<AgentToolResult> => {
   const { transaction } = args;
-  const txAmount = (transaction as unknown as Record<string, unknown>).amount as number || 0;
+  const txAmount = args.amount ?? transaction.amount_in_inr;
 
   const policyDecision = evaluatePolicy(transaction, {
-    const policyDecision = evaluatePolicy(transaction, {
-  recommended_strategy: toolName === "issue_payment_link" ? "send_payment_link" : "retry_payment",
-  recovery_amount: txAmount,
-  decision_explanation: "Agent executed action request"
-});
+    recommended_strategy: toolName === 'issue_payment_link' ? 'send_payment_link' : 'retry_payment',
+    confidence_score: 1,
+  });
 
   if (policyDecision.decision !== 'ALLOW') {
     return {
