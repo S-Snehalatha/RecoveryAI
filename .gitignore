@@ -11,3 +11,5 @@ yarn-debug.log*
 .vercel
 *.tsbuildinfo
 next-env.d.ts
+
+data/demo_state.json
