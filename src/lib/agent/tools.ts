@@ -16,8 +16,9 @@ export const executeAgentTool = async (
   const txAmount = (transaction as unknown as Record<string, unknown>).amount as number || 0;
 
   const policyDecision = evaluatePolicy(transaction, {
-    recommended_strategy: toolName === 'issue_payment_link' ? 'send_payment_link' : 'retry_payment',
-    confidence_score: 0.85,
+    recommended_strategy: toolName === "issue_payment_link" ? "send_payment_link" : "retry_payment",
+    expected_recovery_value: txAmount,
+    decision_explanation: "Agent executed action request"
   });
 
   if (policyDecision.decision !== 'ALLOW') {
