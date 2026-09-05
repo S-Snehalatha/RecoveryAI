@@ -14,7 +14,7 @@ describe('RecoverAI — Phase 9 agent approval-gated recovery pipeline', () => {
     expect(result.batch.execution_mode).toBe('DEMO_SIMULATION');
     expect(result.batch.status).toBe('COMPLETED');
     expect(result.processed).toBeGreaterThan(0);
-    expect(result.recovered).toBe(0); // Updated: Agent stops at human gate; 0 new recoveries executed in batch
+    expect(result.recovered).toBe(0); // Agent stops at human gate; 0 new recoveries executed in batch
     expect(result.batch.metrics_summary.actions_executed).toBe(0);
     expect(result.batch.metrics_summary.approval_required).toBe(true);
 
@@ -25,7 +25,9 @@ describe('RecoverAI — Phase 9 agent approval-gated recovery pipeline', () => {
     expect(inMemoryStore.getRecoveryAttempts().length).toBe(1);
 
     const safeTx = inMemoryStore.getTransactions().find((tx) => tx.demo_scenario === 'SAFE_AUTO_RETRY')!;
-    expect(safeTx.status).toBe('review');
+    // SAFE_AUTO_RETRY is already in the deterministic POLICY_APPROVED state.
+    // Phase 9 batch analysis must not execute it or invent a human-review state.
+    expect(safeTx.status).toBe('POLICY_APPROVED');
     expect(inMemoryStore.getRecoveryAttempts(safeTx.id).length).toBe(0);
 
     // Existing verified demo revenue remains valid evidence; the agent did not
