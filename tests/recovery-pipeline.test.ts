@@ -3,49 +3,48 @@ import { runRecoveryBatch } from '../src/lib/recovery/batchRunner';
 import { evaluatePolicy } from '../src/lib/policy';
 import { inMemoryStore } from '../src/lib/db/inMemoryStore';
 
-describe('RecoverAI — Phase 6 end-to-end recovery pipeline', () => {
+describe('RecoverAI — Phase 9 agent approval-gated recovery pipeline', () => {
   beforeEach(() => {
     inMemoryStore.reset();
-    const scenarios = new Set(['SAFE_AUTO_RETRY', 'OVER_LIMIT_REVIEW', 'LOW_CONFIDENCE_REVIEW', 'PAYMENT_LINK_RECOVERY', 'FAILED_RECOVERY', 'HIGH_VALUE_RECEIVABLE']);
-    inMemoryStore.getTransactions().filter((tx) => tx.demo_scenario && scenarios.has(tx.demo_scenario)).forEach((tx) => inMemoryStore.updateTransaction(tx.id, { status: 'pending' }));
   });
 
-  it('processes the deterministic demo scenarios end-to-end', async () => {
+  it('analyzes at-risk transactions but never executes recovery without human approval', async () => {
     const result = await runRecoveryBatch();
+
     expect(result.batch.execution_mode).toBe('DEMO_SIMULATION');
     expect(result.batch.status).toBe('COMPLETED');
-    expect(result.processed).toBe(6);
-    // Only the auto-retry scenario is immediately, verifiably recovered.
-    // The payment-link scenario dispatched a link successfully but has NOT
-    // been recovered yet — a Payment Link creation is an ATTEMPT, not
-    // recovered revenue, until a later confirmation event verifies it.
+    expect(result.processed).toBeGreaterThan(0);
     expect(result.recovered).toBe(1);
-    expect(result.failed).toBeGreaterThanOrEqual(1);
-    expect(result.reviewed).toBeGreaterThanOrEqual(3);
-    expect(inMemoryStore.getRecoveryAttempts().every((a) => a.execution_mode === 'DEMO_SIMULATION')).toBe(true);
-    expect(inMemoryStore.getRecoveryResults().every((r) => r.verification_source === 'SIMULATION_EVENT')).toBe(true);
-    expect(inMemoryStore.getAuditLogs().some((a) => a.action_type === 'BATCH_COMPLETED')).toBe(true);
+    expect(result.batch.metrics_summary.actions_executed).toBe(0);
+    expect(result.batch.metrics_summary.approval_required).toBe(true);
 
-    // The payment-link attempt itself must exist (money was NOT left untouched)...
-    const linkTx = inMemoryStore.getTransactions().find((tx) => tx.demo_scenario === 'PAYMENT_LINK_RECOVERY')!;
-    const linkAttempt = inMemoryStore.getRecoveryAttempts(linkTx.id)[0];
-    expect(linkAttempt).toBeDefined();
-    expect(linkAttempt?.status).toBe('DISPATCHED');
-    // ...but must NOT have a RecoveryResult yet (no result = not recovered).
-    expect(inMemoryStore.getRecoveryResults(linkTx.id).length).toBe(0);
-    // And the transaction itself must still be sitting in 'executing', not
-    // silently and incorrectly marked 'recovered'.
-    expect(inMemoryStore.getTransactions().find((tx) => tx.id === linkTx.id)?.status).toBe('executing');
+    const pendingReviews = inMemoryStore.getHumanReviews('PENDING');
+    expect(pendingReviews.length).toBeGreaterThan(0);
+
+    // The agent must stop before creating a new recovery attempt.
+    expect(inMemoryStore.getRecoveryAttempts().length).toBe(1);
+
+    const safeTx = inMemoryStore.getTransactions().find((tx) => tx.demo_scenario === 'SAFE_AUTO_RETRY')!;
+    expect(safeTx.status).toBe('review');
+    expect(inMemoryStore.getRecoveryAttempts(safeTx.id).length).toBe(0);
+
+    // Existing verified demo revenue remains valid evidence; the agent did not
+    // count a new recovery during this analysis-only batch.
+    expect(result.recovered_amount_in_inr).toBeGreaterThan(0);
   });
 
-  it('does not duplicate recovery when the batch is run twice', async () => {
+  it('does not duplicate analysis requests when the batch is run twice', async () => {
     await runRecoveryBatch();
     const attemptsAfterFirst = inMemoryStore.getRecoveryAttempts().length;
-    const resultsAfterFirst = inMemoryStore.getRecoveryResults().length;
+    const decisionsAfterFirst = inMemoryStore.getAIDecisions().length;
+    const reviewsAfterFirst = inMemoryStore.getHumanReviews().length;
+
     const second = await runRecoveryBatch();
+
     expect(second.batch.total_transactions).toBe(0);
     expect(inMemoryStore.getRecoveryAttempts().length).toBe(attemptsAfterFirst);
-    expect(inMemoryStore.getRecoveryResults().length).toBe(resultsAfterFirst);
+    expect(inMemoryStore.getAIDecisions().length).toBe(decisionsAfterFirst);
+    expect(inMemoryStore.getHumanReviews().length).toBe(reviewsAfterFirst);
   });
 
   it('keeps an over-limit retry out of automatic execution', () => {
