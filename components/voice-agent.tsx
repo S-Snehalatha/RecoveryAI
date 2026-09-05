@@ -51,7 +51,7 @@ export const VoiceRecoveryAgent: React.FC<VoiceAgentProps> = ({ customerName, am
 
       {agentResponse && (
         <div className="p-3 bg-slate-800/80 rounded-lg text-xs text-slate-200 mb-4 border border-slate-700">
-          <strong>AI Agent:</strong> "{agentResponse}"
+          <strong>AI Agent:</strong> &quot;{agentResponse}&quot;
         </div>
       )}
 
